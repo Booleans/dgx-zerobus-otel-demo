@@ -45,18 +45,33 @@ no real GPU, no Docker. Swap the scrape target for a real
   shredding).
 - Local tools:
 
-  **macOS**
+  The OpenTelemetry project retired its Homebrew tap, so the collector
+  is installed from the GitHub release tarball on every platform. Pick
+  the asset matching your OS/arch from
+  [opentelemetry-collector-releases/releases/latest](https://github.com/open-telemetry/opentelemetry-collector-releases/releases/latest)
+  — filenames look like `otelcol-contrib_<ver>_<os>_<arch>.tar.gz`.
+
+  **macOS (Apple Silicon)**
   ```bash
   brew install uv
-  brew install open-telemetry/tap/otelcol-contrib  # OTel Collector contrib distro
+
+  # OTel Collector contrib distro — swap darwin_arm64 for darwin_amd64 on Intel Macs.
+  VER=0.150.1
+  curl -LO "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${VER}/otelcol-contrib_${VER}_darwin_arm64.tar.gz"
+  tar -xzf "otelcol-contrib_${VER}_darwin_arm64.tar.gz" otelcol-contrib
+  sudo mv otelcol-contrib /usr/local/bin/
+  rm "otelcol-contrib_${VER}_darwin_arm64.tar.gz"
   ```
 
-  **Linux**
+  **Linux (x86_64)**
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  # grab the contrib collector binary for your arch from:
-  # https://github.com/open-telemetry/opentelemetry-collector-releases/releases
-  # (filename looks like otelcol-contrib_<ver>_linux_amd64.tar.gz)
+
+  VER=0.150.1
+  curl -LO "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${VER}/otelcol-contrib_${VER}_linux_amd64.tar.gz"
+  tar -xzf "otelcol-contrib_${VER}_linux_amd64.tar.gz" otelcol-contrib
+  sudo mv otelcol-contrib /usr/local/bin/
+  rm "otelcol-contrib_${VER}_linux_amd64.tar.gz"
   ```
 
   Verify:
