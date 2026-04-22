@@ -1,0 +1,20 @@
+# Secrets
+.env
+.env.local
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+*.swp

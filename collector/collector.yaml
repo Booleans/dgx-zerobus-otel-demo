@@ -1,0 +1,112 @@
+# OpenTelemetry Collector config — DCGM → Databricks Zerobus OTLP
+# =====================================================================
+# Requires the "contrib" distribution (otelcol-contrib) because the
+# oauth2clientauthextension and prometheus receiver are not in the core
+# distribution.
+#
+# Expected environment variables (see .env.example):
+#   DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET
+#   WORKSPACE_URL, WORKSPACE_ID, REGION
+#   CATALOG, SCHEMA, TABLE_PREFIX
+#
+# Run:
+#   set -a; source .env; set +a
+#   otelcol-contrib --config collector/collector.yaml
+# =====================================================================
+
+extensions:
+  # Mints and auto-refreshes an OAuth bearer token for the metrics table.
+  # authorization_details scope the token to *only* the metrics table —
+  # even if leaked it can't write elsewhere in the workspace.
+  oauth2client/metrics:
+    client_id:     ${env:DATABRICKS_CLIENT_ID}
+    client_secret: ${env:DATABRICKS_CLIENT_SECRET}
+    token_url:     https://${env:WORKSPACE_URL}/oidc/v1/token
+    scopes: ['all-apis']
+    endpoint_params:
+      resource: 'api://databricks/workspaces/${env:WORKSPACE_ID}/zerobusDirectWriteApi'
+      authorization_details:
+        - '[{"type":"unity_catalog_privileges","privileges":["USE CATALOG"],"object_type":"CATALOG","object_full_path":"${env:CATALOG}"},{"type":"unity_catalog_privileges","privileges":["USE SCHEMA"],"object_type":"SCHEMA","object_full_path":"${env:CATALOG}.${env:SCHEMA}"},{"type":"unity_catalog_privileges","privileges":["SELECT","MODIFY"],"object_type":"TABLE","object_full_path":"${env:CATALOG}.${env:SCHEMA}.${env:TABLE_PREFIX}_otel_metrics"}]'
+
+receivers:
+  # Scrapes the DCGM exporter (or the Python simulator) on :9400.
+  # metric_relabel_configs keeps only DCGM_* series so we don't ship
+  # stray Go/process metrics from the exporter itself.
+  prometheus/dcgm:
+    config:
+      scrape_configs:
+        - job_name: dcgm
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['localhost:9400']
+              # For real fleets, set cloud_provider / cloud_region here
+              # (one scrape_configs entry per cloud+region), e.g.:
+              # labels:
+              #   cloud_provider: aws
+              #   cloud_region:   us-east-1
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: 'DCGM_.*'
+              action: keep
+
+processors:
+  # service.name becomes a top-level column in the Zerobus otel_metrics
+  # table and is how the DGX fleet identifies itself.
+  resource:
+    attributes:
+      - key: service.name
+        value: dgx-fleet-dcgm
+        action: upsert
+      - key: service.namespace
+        value: nvidia.gpu.telemetry
+        action: upsert
+      # Uncomment and set these per-collector-deployment if you prefer
+      # promoting cloud context to resource attributes (vs. leaving on
+      # each datapoint via Prometheus labels):
+      # - key: cloud.provider
+      #   value: aws
+      #   action: upsert
+      # - key: cloud.region
+      #   value: us-east-1
+      #   action: upsert
+
+  # Batch for efficiency. Tune send_batch_size up (e.g. 2000) once
+  # you're scraping a real fleet.
+  batch:
+    timeout: 5s
+    send_batch_size: 500
+
+exporters:
+  otlp/metrics:
+    endpoint: ${env:WORKSPACE_ID}.zerobus.${env:REGION}.cloud.databricks.com:443
+    auth:
+      authenticator: oauth2client/metrics
+    headers:
+      # Required by Zerobus — each request targets a single table.
+      x-databricks-zerobus-table-name: '${env:CATALOG}.${env:SCHEMA}.${env:TABLE_PREFIX}_otel_metrics'
+    # Sensible retry defaults — the exporter will back off on transient
+    # errors and buffer in memory.
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+
+  # Uncomment to dump metrics locally while debugging auth/header issues.
+  # debug:
+  #   verbosity: detailed
+  #   sampling_initial: 5
+  #   sampling_thereafter: 200
+
+service:
+  extensions: [oauth2client/metrics]
+  pipelines:
+    metrics:
+      receivers:  [prometheus/dcgm]
+      processors: [resource, batch]
+      exporters:  [otlp/metrics]
+  telemetry:
+    logs:
+      level: info

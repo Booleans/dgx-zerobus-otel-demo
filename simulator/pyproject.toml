@@ -1,0 +1,12 @@
+[project]
+name = "dcgm-simulator"
+version = "0.1.0"
+description = "DCGM-exporter-shaped Prometheus simulator for DGX fleet demos."
+requires-python = ">=3.11"
+dependencies = [
+    "prometheus-client>=0.20.0",
+]
+
+[tool.uv]
+# This is a standalone app, not a library — don't try to build/install it.
+package = false
